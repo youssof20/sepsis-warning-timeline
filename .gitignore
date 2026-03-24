@@ -1,0 +1,8 @@
+data/
+outputs/results/sepsis_patients.csv
+outputs/results/nonsepsis_patients.csv
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+.DS_Store

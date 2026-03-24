@@ -1,0 +1,19 @@
+{
+  "dataset": "PhysioNet Challenge 2019",
+  "total_patients": 40336,
+  "sepsis_patients": 2932,
+  "sepsis_rate_pct": 7.27,
+  "median_icu_stay_hours": 39,
+  "sepsis_patients_with_6h_data": 2199,
+  "model": "XGBoost",
+  "model_auc_roc": 0.736,
+  "model_auc_pr": 0.333,
+  "model_f1": 0.398,
+  "top_early_warning_variable": "BUN",
+  "top_early_warning_hours": 9,
+  "top_effect_size_variable": "Creatinine",
+  "top_effect_size_cles": 0.378,
+  "key_finding": "Kidney markers (BUN, Creatinine) warn earliest but are ordered in <7% of ICU hours. The model avoids them — not because they are uninformative, but because clinicians do not order them frequently enough for the AI to learn from them.",
+  "clinical_variables_tested": 34,
+  "analysis_window_hours": 9
+}

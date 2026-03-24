@@ -6,35 +6,33 @@
 ![PhysioNet](https://img.shields.io/badge/data-PhysioNet-orange)
 
 > Sepsis kills because it is caught too late.  
-> This project asks: which clinical variables could have warned us earlier — and by how many hours?
+> I built this to ask: which clinical variables could have warned us earlier, and by how many hours?
 
 ---
 
 ## The Problem
 
-Most sepsis AI research builds binary classifiers: sepsis or not sepsis. Those models often flag patients once deterioration is already obvious.
+I kept seeing papers that treat sepsis as a yes or no prediction. That is fine for benchmarking, but it skips the question I actually care about: which measurements drift apart *hours* before anyone labels sepsis, and does a model even use those measurements if they show up in the chart rarely?
 
-The more useful question is: which individual clinical measurements start diverging between sepsis and non-sepsis patients hours before onset — and does a predictive model actually use those measurements?
-
-This project answers both questions on **40,336 ICU patients** from the PhysioNet 2019 Challenge dataset.
+I ran everything on the PhysioNet 2019 training data: **40,336 ICU patients** total.
 
 ---
 
-## Key Findings
+## What I Found
 
-**BUN and Creatinine warn up to 9 hours before sepsis onset** — but are recorded in fewer than 7% of ICU hours in this cohort.
+BUN and creatinine light up early in the timeline (up to **9 hours** before onset in what the data allows). They also sit in a thin slice of ICU hours. I counted something like **7%** of hourly rows where those labs are present at all, which is a different problem from “is the lab useful.”
 
-**The model does not weight its strongest early warning signals highest.** BUN ranks first on temporal lead time but fifteenth in SHAP importance. Creatinine ranks fourteenth temporally but twenty-sixth in SHAP. The classifier leans on variables that are measured often (vitals), not only on what diverges earliest.
+The XGBoost model I trained does something blunt: it leans on vitals because vitals exist almost every hour. BUN is **#1** on my temporal ranking and **#15** on SHAP. Creatinine is **#14** temporally and **#26** in SHAP. So the gap is not mysterious. The model learns from what it sees often.
 
-**The bottleneck is often data collection, not the algorithm.** If kidney labs were ordered more often for high-risk patients, both clinicians and models would have more signal to work with.
+If I had to state the uncomfortable part in one line: kidney markers carry an early signal, but they are sparse in the record, so the classifier barely learns from them. That is a documentation and ordering problem as much as a modeling problem.
 
 ---
 
-## How It Works
+## Methods (short)
 
-For each of **34 clinical variables**, we ask: at what hour before sepsis onset does this variable become statistically different between sepsis and non-sepsis patients (Mann–Whitney U, Bonferroni correction across hourly tests)? The earliest corrected-significant hour is that variable’s **early warning lead time**.
+I took **34** lab and vital columns (demographics and IDs stripped out). For each variable and each hour before onset, I ran a Mann-Whitney test with Bonferroni correction across the hourly windows. The earliest hour that survives correction is what I call that variable’s lead time.
 
-We then train an **XGBoost** classifier on a snapshot at **6 hours before onset** and compute **SHAP** values. We compare SHAP rank to temporal rank to see whether the model relies on what warns earliest.
+For the model piece I snapshot patients at **6 hours** before onset, median-impute, fit **XGBoost** with class weighting, then **SHAP** to rank features. I line that rank up next to the temporal rank from the stats above.
 
 ---
 
@@ -42,20 +40,20 @@ We then train an **XGBoost** classifier on a snapshot at **6 hours before onset*
 
 ![Early warning timeline](outputs/figures/early_warning_timeline.png)
 
-*How many hours before sepsis onset each variable becomes a statistically significant warning (top 15 by lead time).*
+*Top 15 variables by lead time. Bars read as “how far back from onset the signal first clears the corrected threshold.”*
 
 ![SHAP vs temporal ranks](outputs/figures/shap_vs_temporal.png)
 
-*Points below the diagonal have better temporal rank than SHAP rank: they warn earlier than the model weights them. BUN and Creatinine sit in that region.*
+*Below the diagonal: warns earlier than the model weights it. BUN and creatinine sit down there.*
 
 | Metric | Value |
 |--------|-------|
 | Patients | 40,336 |
 | Sepsis rate | 7.3% |
 | Model AUC-ROC | 0.736 |
-| Longest measured lead time | 9 hours (shared by several variables, including BUN) |
-| Strongest effect size (CLES distance from 0.5) | Creatinine (~0.38) |
-| BUN: temporal rank vs SHAP rank | #1 vs #15 |
+| Longest lead time in this table | 9 h (shared by several vars, BUN among them) |
+| Largest effect size (CLES distance from 0.5) | Creatinine (~0.38) |
+| BUN: temporal rank vs SHAP | #1 vs #15 |
 
 ---
 
@@ -75,7 +73,7 @@ PhysioNet Challenge 2019 (free):
 
 https://physionet.org/content/challenge-2019/1.0.0/
 
-Place files so you have:
+Folder layout:
 
 ```text
 data/
@@ -92,7 +90,7 @@ python src/model.py
 python src/visualize.py
 ```
 
-Phases: (1) load + cohort CSVs, (2) hourly tests + timeline, (3) XGBoost + SHAP, (4) figures.
+Order is: cohort CSVs, then hourly tests and timeline, then XGBoost and SHAP, then the five figures.
 
 ### 4. Launch the app
 
@@ -123,22 +121,23 @@ sepsis-warning-timeline/
 
 ---
 
-## Clinical Implications
+## Why this might matter clinically
 
-Many hospital early-warning workflows lean heavily on vitals (heart rate, respiratory rate, blood pressure, temperature). This analysis shows that **kidney markers (BUN, Creatinine)** carry large, early separation in the statistical comparison — but they need a blood draw and appear in a small fraction of hourly rows compared with vitals.
+Vitals dominate most bedside scores. The stats here say renal markers move early when they are measured. They are not measured every hour. I am not arguing to drop vitals. I am saying frequency of labs changes what ends up in the chart, and therefore what any model trained on that chart can learn.
 
-That does not mean “replace vitals with labs.” It means **when** labs are ordered matters: more frequent renal panels in higher-risk patients could surface the same signal the timeline already finds — signal that a model trained on sparse labs will underuse.
-
-Models judged only on overall discrimination (e.g. AUC) can look fine while still underweighting variables that are rarely recorded. Reporting temporal lead time and data availability alongside performance metrics makes that gap visible.
+AUC alone will not show that. Pairing discrimination with lead time and missingness does.
 
 ---
 
 ## Limitations
 
-- **Observational data:** we compare groups at matched ICU hours; we do not prove causation.
-- **Two hospital systems** in the public training split; generalization to other sites is not guaranteed.
-- **Missing labs are not random:** tests are ordered for clinical reasons, so observed values are a mix of biology and ordering practice.
-- **Nine-hour ceiling:** most patients do not have more than ~9 hours of pre-onset ICU history in the exported window, so we cannot claim 12-hour lead times from this table alone.
+I am comparing observational groups at matched ICU hours. I am not claiming causation.
+
+Two hospital systems in the public training split. I would not assume this transfers everywhere.
+
+Labs are ordered when someone is worried. Present values are already filtered by clinical judgment.
+
+Most patients in this dataset do not have more than about **nine hours** of pre-onset ICU history in the window I exported. I cannot claim twelve-hour lead times from this table.
 
 ---
 
@@ -151,4 +150,4 @@ GitHub: <https://github.com/youssof20/sepsis-warning-timeline>
 
 ## Acknowledgements
 
-Data from PhysioNet — Reyna et al., *Early Prediction of Sepsis from Clinical Data*, Computing in Cardiology 2019.
+Data from PhysioNet. Reyna et al., *Early Prediction of Sepsis from Clinical Data*, Computing in Cardiology 2019.
